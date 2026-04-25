@@ -242,6 +242,9 @@ public final class LisperAppCoordinator: ObservableObject {
             while !Task.isCancelled {
                 let samples = audioCaptureService.snapshot()
                 if !samples.isEmpty {
+                    await MainActor.run {
+                        self?.model.applyAudioSamples(samples)
+                    }
                     do {
                         let transcript = try await Task.detached(priority: .userInitiated) {
                             try transcriber.transcribe(samples: samples)
@@ -482,89 +485,5 @@ private final class LisperHotkeyMonitor {
 
         let flags = event.flags
         return flags.contains(.maskControl) && flags.contains(.maskAlternate) && !flags.contains(.maskCommand)
-    }
-}
-
-public struct LisperContentView: View {
-    @ObservedObject private var model: LisperAppModel
-
-    public init(model: LisperAppModel) {
-        _model = ObservedObject(wrappedValue: model)
-    }
-
-    public var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            header
-            transcriptPanel
-            footer
-        }
-        .padding(20)
-        .frame(minWidth: 760, minHeight: 520)
-        .background(
-            LinearGradient(
-                colors: [
-                    Color(nsColor: .windowBackgroundColor),
-                    Color(nsColor: .controlBackgroundColor)
-                ],
-                startPoint: .top,
-                endPoint: .bottom
-            )
-        )
-    }
-
-    private var header: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Lisper")
-                .font(.system(size: 28, weight: .semibold, design: .rounded))
-
-            HStack(spacing: 12) {
-                statusBadge
-                Text(LisperDefaults.hotkeyDisplay)
-                    .font(.caption)
-                    .padding(.horizontal, 10)
-                    .padding(.vertical, 6)
-                    .background(.quaternary, in: Capsule())
-            }
-        }
-    }
-
-    private var statusBadge: some View {
-        Text(model.statusText)
-            .font(.caption.weight(.semibold))
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .background(.black.opacity(0.08), in: Capsule())
-    }
-
-    private var transcriptPanel: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Transcript")
-                .font(.headline)
-
-            ScrollView {
-                Text(model.transcriptText.isEmpty ? "Speak to begin." : model.transcriptText)
-                    .font(.system(.body, design: .monospaced))
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .textSelection(.enabled)
-                    .padding(12)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            .background(.background, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
-            .overlay(
-                RoundedRectangle(cornerRadius: 14, style: .continuous)
-                    .strokeBorder(.quaternary, lineWidth: 1)
-            )
-        }
-    }
-
-    private var footer: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("Diagnostics")
-                .font(.headline)
-            Text(model.diagnosticsText.isEmpty ? "Ready." : model.diagnosticsText)
-                .font(.footnote)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
     }
 }
