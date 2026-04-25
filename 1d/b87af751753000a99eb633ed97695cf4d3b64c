@@ -1,0 +1,29 @@
+Sources/lisper-app/AppSupport.swift
+  a1be21567a2d7855 245-247
+Sources/lisper-app/main.swift
+  a1be21567a2d7855 8-27
+Sources/lisper-app/SettingsView.swift
+  a1be21567a2d7855 1-307
+Sources/lisper-app/EphemeralModalView.swift
+  a1be21567a2d7855 1-353
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "1db87af751753000a99eb633ed97695cf4d3b64c",
+  "prompts": {
+    "a1be21567a2d7855": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc201-6040-7b83-a6f0-4d641d980140",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Donovan Yohan",
+      "messages": [],
+      "total_additions": 683,
+      "total_deletions": 86,
+      "accepted_lines": 683,
+      "overriden_lines": 0
+    }
+  }
+}
