@@ -4,9 +4,9 @@ import Carbon
 
 final class AppExecutableSmokeTests: XCTestCase {
     func testHotkeyConstantIsDocumentedAndStable() {
-        XCTAssertEqual(LisperDefaults.hotkeyDisplay, "Control + Option + Space")
-        XCTAssertEqual(LisperDefaults.hotkeyKeyCode, 49)
-        XCTAssertEqual(LisperDefaults.hotkeyCarbonModifiers, UInt32(controlKey | optionKey))
+        XCTAssertEqual(LisperDefaults.hotkeyDisplay, "Right Option")
+        XCTAssertEqual(LisperDefaults.hotkeyKeyCode, 61)
+        XCTAssertEqual(LisperDefaults.hotkeyCarbonModifiers, 0)
         XCTAssertEqual(LisperDefaults.whisperCaptureID, 0)
         XCTAssertEqual(LisperDefaults.whisperStepMilliseconds, 1000)
         XCTAssertEqual(LisperDefaults.whisperLengthMilliseconds, 5000)

@@ -36,3 +36,15 @@ public struct TranscriptResult: Equatable, Sendable {
         enhancedText == nil ? .original : .enhanced
     }
 }
+
+public struct CopyFeedbackEvent: Equatable, Sendable, Identifiable {
+    public let id: UUID
+    public var source: TranscriptTextSource
+    public var message: String
+
+    public init(id: UUID = UUID(), source: TranscriptTextSource, message: String) {
+        self.id = id
+        self.source = source
+        self.message = message
+    }
+}

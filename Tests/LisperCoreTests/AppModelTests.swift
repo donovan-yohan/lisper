@@ -153,6 +153,47 @@ final class AppModelTests: XCTestCase {
         XCTAssertEqual(model.transcriptResult, TranscriptResult(original: "partial result", cleanup: .processing))
     }
 
+    func testCleanupCompletionUpdatesExistingTranscriptResult() async throws {
+        let dependencyResolver = FakeDependencyResolver()
+        let session = FakeWhisperSession()
+        let sessionFactory = FakeSessionFactory(session: session)
+        let model = LisperAppModel(
+            dependencyResolver: dependencyResolver,
+            sessionFactory: sessionFactory
+        )
+
+        let token = try await model.startRecording()
+        await model.handle(.transcript("hello there"), from: token)
+        model.stopRecording()
+
+        model.completeCleanup(.succeeded("Hello there."))
+
+        XCTAssertEqual(model.transcriptResult, TranscriptResult(original: "hello there", cleanup: .succeeded("Hello there.")))
+        XCTAssertEqual(model.transcriptResult?.preferredText, "Hello there.")
+    }
+
+    func testCopyFeedbackEventCanBeReportedAndResetsWithNewSession() async throws {
+        let dependencyResolver = FakeDependencyResolver()
+        let firstSession = FakeWhisperSession()
+        let secondSession = FakeWhisperSession()
+        let sessionFactory = SequencedSessionFactory(sessions: [firstSession, secondSession])
+        let model = LisperAppModel(
+            dependencyResolver: dependencyResolver,
+            sessionFactory: sessionFactory
+        )
+
+        model.reportCopyFeedback(source: .enhanced, message: "Text copied")
+
+        XCTAssertEqual(model.copyFeedbackEvent?.source, .enhanced)
+        XCTAssertEqual(model.copyFeedbackEvent?.message, "Text copied")
+
+        _ = try await model.startRecording()
+        model.stopRecording()
+        _ = try await model.startRecording()
+
+        XCTAssertNil(model.copyFeedbackEvent)
+    }
+
     func testAudioFeedbackStateIsExposedAndUpdatable() {
         let dependencyResolver = FakeDependencyResolver()
         let session = FakeWhisperSession()

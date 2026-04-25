@@ -1,8 +1,10 @@
+import AppKit
 import SwiftUI
 import LisperCore
 
 struct LisperPrototypeApp: App {
     @StateObject private var coordinator = LisperAppCoordinator()
+    @Environment(\.openWindow) private var openWindow
 
     var body: some Scene {
         WindowGroup("Lisper", id: "ephemeral-modal") {
@@ -15,6 +17,23 @@ struct LisperPrototypeApp: App {
             LisperSettingsView(model: coordinator.model)
                 .preferredColorScheme(preferredColorScheme)
         }
+
+        MenuBarExtra("Lisper", systemImage: "waveform") {
+            Button("Options...") {
+                openOptions()
+            }
+
+            Button("Show Modal") {
+                openWindow(id: "ephemeral-modal")
+                NSApp.activate(ignoringOtherApps: true)
+            }
+
+            Divider()
+
+            Button("Quit Lisper") {
+                NSApp.terminate(nil)
+            }
+        }
     }
 
     private var preferredColorScheme: ColorScheme? {
@@ -26,6 +45,11 @@ struct LisperPrototypeApp: App {
         case .dark:
             .dark
         }
+    }
+
+    private func openOptions() {
+        NSApp.activate(ignoringOtherApps: true)
+        NSApp.sendAction(Selector(("showSettingsWindow:")), to: nil, from: nil)
     }
 }
 

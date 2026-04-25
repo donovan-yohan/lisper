@@ -1,6 +1,6 @@
 import Foundation
 
-public struct LisperSettings: Equatable, Sendable {
+public struct LisperSettings: Equatable, Sendable, Codable {
     public var hotkey: HotkeySettings
     public var automation: AutomationSettings
     public var appearance: AppearanceSettings
@@ -30,7 +30,7 @@ public struct LisperSettings: Equatable, Sendable {
     )
 }
 
-public struct HotkeySettings: Equatable, Sendable {
+public struct HotkeySettings: Equatable, Sendable, Codable {
     public var displayName: String
     public var keyCode: Int
     public var modifierFlags: UInt64
@@ -44,7 +44,7 @@ public struct HotkeySettings: Equatable, Sendable {
     public static let rightOption = HotkeySettings(displayName: "Right Option", keyCode: 61, modifierFlags: 0)
 }
 
-public struct AutomationSettings: Equatable, Sendable {
+public struct AutomationSettings: Equatable, Sendable, Codable {
     public var postProcessingEnabled: Bool
     public var autoCopyEnabled: Bool
     public var autoPasteEnabled: Bool
@@ -66,7 +66,7 @@ public struct AutomationSettings: Equatable, Sendable {
     )
 }
 
-public enum AppearanceSettings: String, Equatable, Sendable, CaseIterable {
+public enum AppearanceSettings: String, Equatable, Sendable, Codable, CaseIterable {
     case system
     case light
     case dark

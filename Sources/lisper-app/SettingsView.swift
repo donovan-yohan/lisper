@@ -1,4 +1,5 @@
 import Security
+import AppKit
 import SwiftUI
 import LisperCore
 
@@ -58,6 +59,7 @@ public struct LisperSettingsView: View {
 public struct HotkeySettingsPane: View {
     @Binding var settings: LisperSettings
     @State private var isRecordingHotkey = false
+    @State private var eventMonitor: Any?
 
     public var body: some View {
         SettingsSection(title: "Hotkey", systemImage: "keyboard") {
@@ -73,13 +75,68 @@ public struct HotkeySettingsPane: View {
                 Spacer()
 
                 Button(isRecordingHotkey ? "Press a key..." : "Record") {
-                    isRecordingHotkey.toggle()
-                    if !isRecordingHotkey {
-                        settings.hotkey = .rightOption
+                    if isRecordingHotkey {
+                        stopRecordingHotkey()
+                    } else {
+                        startRecordingHotkey()
                     }
                 }
             }
         }
+        .onDisappear {
+            stopRecordingHotkey()
+        }
+    }
+
+    private func startRecordingHotkey() {
+        isRecordingHotkey = true
+        eventMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .flagsChanged]) { event in
+            apply(event: event)
+            return nil
+        }
+    }
+
+    private func stopRecordingHotkey() {
+        isRecordingHotkey = false
+        if let eventMonitor {
+            NSEvent.removeMonitor(eventMonitor)
+            self.eventMonitor = nil
+        }
+    }
+
+    private func apply(event: NSEvent) {
+        let keyCode = Int(event.keyCode)
+        let displayName: String
+        let modifierFlags: UInt64
+
+        if event.type == .flagsChanged, keyCode == Int(LisperDefaults.hotkeyKeyCode) {
+            displayName = "Right Option"
+            modifierFlags = 0
+        } else {
+            let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let key = event.charactersIgnoringModifiers?.uppercased()
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            displayName = [modifierDisplayName(for: modifiers), key?.isEmpty == false ? key : nil]
+                .compactMap { $0 }
+                .joined(separator: " + ")
+            modifierFlags = UInt64(modifiers.rawValue)
+        }
+
+        settings.hotkey = HotkeySettings(
+            displayName: displayName.isEmpty ? "Key \(keyCode)" : displayName,
+            keyCode: keyCode,
+            modifierFlags: modifierFlags
+        )
+        stopRecordingHotkey()
+    }
+
+    private func modifierDisplayName(for flags: NSEvent.ModifierFlags) -> String? {
+        var parts: [String] = []
+        if flags.contains(.control) { parts.append("Control") }
+        if flags.contains(.option) { parts.append("Option") }
+        if flags.contains(.shift) { parts.append("Shift") }
+        if flags.contains(.command) { parts.append("Command") }
+        return parts.isEmpty ? nil : parts.joined(separator: " + ")
     }
 }
 
@@ -293,19 +350,25 @@ private struct ModelSlotEditor: View {
         }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "HEAD"
+        request.httpMethod = "POST"
         request.timeoutInterval = 8
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         if let token = AppKeychain.load(reference: keychainReference), !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
+        request.httpBody = try? JSONSerialization.data(
+            withJSONObject: configuration.slot == .speechToText
+                ? ["sampleRate": WhisperRuntimeDefaults.sampleRate, "samples": [0.0]] as [String: Any]
+                : ["text": "clean this up"] as [String: Any]
+        )
 
         do {
-            let (_, response) = try await URLSession.shared.data(for: request)
+            let (data, response) = try await URLSession.shared.data(for: request)
             guard let httpResponse = response as? HTTPURLResponse else {
                 return .failed("No HTTP response")
             }
 
-            if (200..<400).contains(httpResponse.statusCode) {
+            if (200..<400).contains(httpResponse.statusCode), RemoteModelClient.parseText(from: data) != nil {
                 return .succeeded("Endpoint reachable")
             }
 
@@ -363,7 +426,7 @@ private struct SettingsSection<Content: View>: View {
     }
 }
 
-private enum AppKeychain {
+enum AppKeychain {
     static func save(_ value: String, reference: String) throws {
         delete(reference: reference)
         let query: [String: Any] = [

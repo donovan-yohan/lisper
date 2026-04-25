@@ -13,6 +13,9 @@ public final class LisperAppCoordinator: ObservableObject {
     private let diagnosticsLogger = LisperDiagnosticsLogger()
     private let hotkeyRouter = LisperHotkeyRouter()
     private lazy var hotkeyMonitor = LisperHotkeyMonitor(
+        settingsProvider: { [weak self] in
+            self?.model.settings.hotkey ?? .rightOption
+        },
         onKeyDown: { [hotkeyRouter] in
             hotkeyRouter.handleKeyDown()
         },
@@ -40,7 +43,8 @@ public final class LisperAppCoordinator: ObservableObject {
         self.dependencyResolver = dependencyResolver
         self.model = LisperAppModel(
             dependencyResolver: dependencyResolver,
-            sessionFactory: sessionFactory
+            sessionFactory: sessionFactory,
+            settings: AppSettingsPersistence.load()
         )
         hotkeyRouter.coordinator = self
         bindLogging()
@@ -77,6 +81,13 @@ public final class LisperAppCoordinator: ObservableObject {
                     return
                 }
                 diagnosticsLogger.log("transcript: \(transcript)")
+            }
+            .store(in: &cancellables)
+
+        model.$settings
+            .removeDuplicates()
+            .sink { settings in
+                AppSettingsPersistence.save(settings)
             }
             .store(in: &cancellables)
     }
@@ -214,25 +225,119 @@ public final class LisperAppCoordinator: ObservableObject {
         transcriber = nil
         if let activeSessionToken {
             model.finishRecording(for: activeSessionToken)
+            handleRecordingFinished()
         }
         activeSessionToken = nil
         recordingInteraction = .idle
         stopRequestedDuringStart = false
     }
 
+    private func handleRecordingFinished() {
+        guard let transcriptResult = model.transcriptResult else {
+            return
+        }
+
+        switch transcriptResult.cleanup {
+        case .processing:
+            Task { [weak self] in
+                guard let self else {
+                    return
+                }
+
+                do {
+                    let enhanced: String
+                    if self.model.settings.cleanupModel.kind == .remote {
+                        enhanced = try await RemoteModelClient.cleanup(
+                            text: transcriptResult.original,
+                            configuration: self.model.settings.cleanupModel
+                        )
+                    } else {
+                        enhanced = Self.cleanTranscript(transcriptResult.original)
+                    }
+                    self.model.completeCleanup(.succeeded(enhanced))
+                } catch {
+                    self.model.completeCleanup(.failed(error.localizedDescription))
+                    self.model.reportDiagnostic("Cleanup failed: \(error.localizedDescription)")
+                }
+                await self.performAutomationIfNeeded()
+            }
+        case .disabled, .failed, .succeeded:
+            Task { [weak self] in
+                await self?.performAutomationIfNeeded()
+            }
+        }
+    }
+
+    private func performAutomationIfNeeded() async {
+        guard let transcriptResult = model.transcriptResult else {
+            return
+        }
+
+        let preferredText = transcriptResult.preferredText
+        let preferredSource = transcriptResult.preferredSource
+        guard !preferredText.isEmpty else {
+            return
+        }
+
+        if model.settings.automation.autoCopyEnabled {
+            do {
+                try AppClipboardWriter().copy(preferredText)
+                model.reportCopyFeedback(source: preferredSource, message: "Text copied")
+            } catch {
+                model.reportCopyFeedback(source: preferredSource, message: "Copy failed")
+                model.reportDiagnostic(error.localizedDescription)
+            }
+        }
+
+        if model.settings.automation.autoPasteEnabled {
+            do {
+                let copyPasteCoordinator = CopyPasteCoordinator(
+                    clipboard: AppClipboardWriter(),
+                    activeField: AppActiveFieldPaster()
+                )
+                try await copyPasteCoordinator.pasteIfEnabled(preferredText, enabled: true)
+            } catch {
+                model.reportDiagnostic("Auto-paste failed: \(error.localizedDescription)")
+            }
+        }
+    }
+
+    private static func cleanTranscript(_ transcript: String) -> String {
+        let trimmed = transcript.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let first = trimmed.first else {
+            return trimmed
+        }
+
+        var cleaned = first.uppercased() + trimmed.dropFirst()
+        if let last = cleaned.last, !".!?".contains(last) {
+            cleaned.append(".")
+        }
+        return cleaned
+    }
+
     private func startInProcessRecording(using sessionToken: AppSessionToken) async throws {
-        let dependency = try dependencyResolver.resolve()
-        let configuration = WhisperLibraryTranscriber.Configuration(modelURL: dependency.model)
-        let transcriber = try WhisperLibraryTranscriber(configuration: configuration)
+        let speechModel = model.settings.speechToTextModel
+        let configuration: WhisperLibraryTranscriber.Configuration
+        let transcriber: WhisperLibraryTranscriber?
+
+        if speechModel.kind == .remote {
+            configuration = WhisperLibraryTranscriber.Configuration(modelURL: URL(fileURLWithPath: "/dev/null"))
+            transcriber = nil
+            diagnosticsLogger.log("Using remote speech-to-text endpoint: \(speechModel.endpointURL)")
+        } else {
+            let dependency = try dependencyResolver.resolve()
+            configuration = WhisperLibraryTranscriber.Configuration(modelURL: dependency.model)
+            transcriber = try WhisperLibraryTranscriber(configuration: configuration)
+            diagnosticsLogger.log("Using in-process libwhisper model: \(dependency.model.path)")
+            diagnosticsLogger.log("libwhisper version: \(WhisperLibraryTranscriber.libraryVersion)")
+        }
+
         let audioCaptureService = AudioCaptureService(
             maxSamples: configuration.sampleRate * Int(configuration.windowDurationSeconds)
         )
 
         self.transcriber = transcriber
         self.audioCaptureService = audioCaptureService
-
-        diagnosticsLogger.log("Using in-process libwhisper model: \(dependency.model.path)")
-        diagnosticsLogger.log("libwhisper version: \(WhisperLibraryTranscriber.libraryVersion)")
 
         try await audioCaptureService.start()
         model.markRecordingActive(for: sessionToken)
@@ -246,9 +351,23 @@ public final class LisperAppCoordinator: ObservableObject {
                         self?.model.applyAudioSamples(samples)
                     }
                     do {
-                        let transcript = try await Task.detached(priority: .userInitiated) {
-                            try transcriber.transcribe(samples: samples)
-                        }.value
+                        let speechModel = await MainActor.run {
+                            self?.model.settings.speechToTextModel
+                        }
+                        let transcript: String
+                        if let speechModel, speechModel.kind == .remote {
+                            transcript = try await RemoteModelClient.transcribe(
+                                samples: samples,
+                                configuration: speechModel
+                            )
+                        } else {
+                            guard let transcriber else {
+                                throw RemoteModelError.invalidEndpoint
+                            }
+                            transcript = try await Task.detached(priority: .userInitiated) {
+                                try transcriber.transcribe(samples: samples)
+                            }.value
+                        }
                         if !transcript.isEmpty {
                             self?.model.applyLiveTranscript(transcript, from: sessionToken)
                         }
@@ -337,6 +456,7 @@ private final class LisperHotkeyRouter {
 }
 
 private final class LisperHotkeyMonitor {
+    private let settingsProvider: () -> HotkeySettings
     private let onKeyDown: () -> Void
     private let onKeyUp: () -> Void
 
@@ -344,11 +464,14 @@ private final class LisperHotkeyMonitor {
     private var hotKeyHandlerRef: EventHandlerRef?
     private var eventTap: CFMachPort?
     private var eventTapSource: CFRunLoopSource?
+    private var hotkeyIsDown = false
 
     init(
+        settingsProvider: @escaping () -> HotkeySettings,
         onKeyDown: @escaping () -> Void,
         onKeyUp: @escaping () -> Void
     ) {
+        self.settingsProvider = settingsProvider
         self.onKeyDown = onKeyDown
         self.onKeyUp = onKeyUp
     }
@@ -357,8 +480,12 @@ private final class LisperHotkeyMonitor {
     func start() -> Bool {
         stop()
 
+        if installHotkeyEventTap() {
+            return true
+        }
+
         registerCarbonHotKey()
-        return installReleaseEventTap()
+        return false
     }
 
     func stop() {
@@ -426,8 +553,10 @@ private final class LisperHotkeyMonitor {
         }
     }
 
-    private func installReleaseEventTap() -> Bool {
-        let eventMask = 1 << CGEventType.keyUp.rawValue
+    private func installHotkeyEventTap() -> Bool {
+        let eventMask = (1 << CGEventType.flagsChanged.rawValue)
+            | (1 << CGEventType.keyDown.rawValue)
+            | (1 << CGEventType.keyUp.rawValue)
         let userInfo = Unmanaged.passUnretained(self).toOpaque()
 
         let callback: CGEventTapCallBack = { _, type, event, userInfo in
@@ -441,6 +570,12 @@ private final class LisperHotkeyMonitor {
                 if let eventTap = monitor.eventTap {
                     CGEvent.tapEnable(tap: eventTap, enable: true)
                 }
+                return Unmanaged.passUnretained(event)
+            case .flagsChanged:
+                monitor.handleFlagsChangedEvent(event)
+                return Unmanaged.passUnretained(event)
+            case .keyDown:
+                monitor.handleKeyDownEvent(event)
                 return Unmanaged.passUnretained(event)
             case .keyUp:
                 monitor.handleKeyUpEvent(event)
@@ -474,16 +609,119 @@ private final class LisperHotkeyMonitor {
             return
         }
 
+        hotkeyIsDown = false
         onKeyUp()
     }
 
-    private func isLisperHotkeyRelease(_ event: CGEvent) -> Bool {
+    private func handleFlagsChangedEvent(_ event: CGEvent) {
+        let settings = settingsProvider()
         let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
-        guard keyCode == Int64(LisperDefaults.hotkeyKeyCode) else {
+        guard keyCode == Int64(settings.keyCode), settings.modifierFlags == 0 else {
+            return
+        }
+
+        let isDown = event.flags.contains(.maskAlternate)
+        guard isDown != hotkeyIsDown else {
+            return
+        }
+
+        hotkeyIsDown = isDown
+        if isDown {
+            onKeyDown()
+        } else {
+            onKeyUp()
+        }
+    }
+
+    private func handleKeyDownEvent(_ event: CGEvent) {
+        guard matchesConfiguredKey(event), !hotkeyIsDown else {
+            return
+        }
+
+        hotkeyIsDown = true
+        onKeyDown()
+    }
+
+    private func isLisperHotkeyRelease(_ event: CGEvent) -> Bool {
+        let settings = settingsProvider()
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        guard keyCode == Int64(settings.keyCode) else {
             return false
         }
 
-        let flags = event.flags
-        return flags.contains(.maskControl) && flags.contains(.maskAlternate) && !flags.contains(.maskCommand)
+        return settings.modifierFlags == 0 || matchesConfiguredModifiers(event.flags, settings: settings)
+    }
+
+    private func matchesConfiguredKey(_ event: CGEvent) -> Bool {
+        let settings = settingsProvider()
+        let keyCode = event.getIntegerValueField(.keyboardEventKeycode)
+        guard keyCode == Int64(settings.keyCode) else {
+            return false
+        }
+
+        return settings.modifierFlags == 0 || matchesConfiguredModifiers(event.flags, settings: settings)
+    }
+
+    private func matchesConfiguredModifiers(_ flags: CGEventFlags, settings: HotkeySettings) -> Bool {
+        let raw = settings.modifierFlags
+        if raw == 0 {
+            return true
+        }
+
+        let needsControl = raw & UInt64(NSEvent.ModifierFlags.control.rawValue) != 0
+        let needsOption = raw & UInt64(NSEvent.ModifierFlags.option.rawValue) != 0
+        let needsShift = raw & UInt64(NSEvent.ModifierFlags.shift.rawValue) != 0
+        let needsCommand = raw & UInt64(NSEvent.ModifierFlags.command.rawValue) != 0
+
+        return (!needsControl || flags.contains(.maskControl))
+            && (!needsOption || flags.contains(.maskAlternate))
+            && (!needsShift || flags.contains(.maskShift))
+            && (!needsCommand || flags.contains(.maskCommand))
+    }
+}
+
+private enum AppSettingsPersistence {
+    private static let key = "lisper.settings.v1"
+
+    static func load() -> LisperSettings {
+        guard let data = UserDefaults.standard.data(forKey: key),
+              let settings = try? JSONDecoder().decode(LisperSettings.self, from: data) else {
+            return .defaults
+        }
+        return settings
+    }
+
+    static func save(_ settings: LisperSettings) {
+        guard let data = try? JSONEncoder().encode(settings) else {
+            return
+        }
+        UserDefaults.standard.set(data, forKey: key)
+    }
+}
+
+private struct AppClipboardWriter: ClipboardWriting {
+    func copy(_ text: String) throws {
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        guard pasteboard.setString(text, forType: .string) else {
+            throw CopyPasteError.copyFailed
+        }
+    }
+}
+
+private struct AppActiveFieldPaster: ActiveFieldPasting {
+    func paste(_ text: String) async throws {
+        try AppClipboardWriter().copy(text)
+
+        guard let source = CGEventSource(stateID: .hidSystemState),
+              let keyDown = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: true),
+              let keyUp = CGEvent(keyboardEventSource: source, virtualKey: 9, keyDown: false) else {
+            throw CopyPasteError.pasteUnavailable
+        }
+
+        keyDown.flags = .maskCommand
+        keyUp.flags = .maskCommand
+        keyDown.post(tap: .cghidEventTap)
+        keyUp.post(tap: .cghidEventTap)
     }
 }

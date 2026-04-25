@@ -28,6 +28,7 @@ public final class LisperAppModel: ObservableObject {
     @Published public private(set) var settings: LisperSettings = .defaults
     @Published public private(set) var transcriptResult: TranscriptResult?
     @Published public private(set) var audioFeedback: AudioFeedbackModel = AudioFeedbackModel()
+    @Published public private(set) var copyFeedbackEvent: CopyFeedbackEvent?
 
     private let dependencyResolver: any WhisperDependencyResolving
     private let sessionFactory: any WhisperStreamingSessionFactory
@@ -39,10 +40,12 @@ public final class LisperAppModel: ObservableObject {
 
     public init(
         dependencyResolver: any WhisperDependencyResolving,
-        sessionFactory: any WhisperStreamingSessionFactory
+        sessionFactory: any WhisperStreamingSessionFactory,
+        settings: LisperSettings = .defaults
     ) {
         self.dependencyResolver = dependencyResolver
         self.sessionFactory = sessionFactory
+        self.settings = settings
     }
 
     public func startRecording() async throws -> AppSessionToken {
@@ -157,6 +160,18 @@ public final class LisperAppModel: ObservableObject {
         audioFeedback.apply(samples: samples)
     }
 
+    public func completeCleanup(_ cleanup: CleanupState) {
+        guard let transcriptResult else {
+            return
+        }
+
+        self.transcriptResult = TranscriptResult(original: transcriptResult.original, cleanup: cleanup)
+    }
+
+    public func reportCopyFeedback(source: TranscriptTextSource, message: String) {
+        copyFeedbackEvent = CopyFeedbackEvent(source: source, message: message)
+    }
+
     public func beginInProcessRecording() -> AppSessionToken {
         let token = makeSessionToken()
         activeSessionToken = token
@@ -267,6 +282,7 @@ public final class LisperAppModel: ObservableObject {
         liveTranscriptTail = ""
         transcriptText = ""
         transcriptResult = nil
+        copyFeedbackEvent = nil
     }
 
     private func rebuildTranscriptText() {
