@@ -25,6 +25,9 @@ public final class LisperAppModel: ObservableObject {
     @Published public private(set) var transcriptText: String = ""
     @Published public private(set) var statusText: String = "Idle"
     @Published public private(set) var diagnosticsText: String = ""
+    @Published public private(set) var settings: LisperSettings = .defaults
+    @Published public private(set) var transcriptResult: TranscriptResult?
+    @Published public private(set) var audioFeedback: AudioFeedbackModel = AudioFeedbackModel()
 
     private let dependencyResolver: any WhisperDependencyResolving
     private let sessionFactory: any WhisperStreamingSessionFactory
@@ -97,6 +100,7 @@ public final class LisperAppModel: ObservableObject {
         }
 
         commitLiveTranscriptTail()
+        createTranscriptResultForFinishedRecording()
         phase = .stopping
         statusText = "Stopping recording"
         activeSession?.stop()
@@ -124,12 +128,14 @@ public final class LisperAppModel: ObservableObject {
             diagnosticsText = message
         case .stopped:
             commitLiveTranscriptTail()
+            createTranscriptResultForFinishedRecording()
             activeSession = nil
             activeSessionToken = nil
             phase = .idle
             statusText = "Idle"
         case .failed(let message):
             commitLiveTranscriptTail()
+            createTranscriptResultForFinishedRecording()
             phase = .failed
             statusText = "Recording failed"
             diagnosticsText = message
@@ -141,6 +147,14 @@ public final class LisperAppModel: ObservableObject {
 
     public func reportDiagnostic(_ message: String) {
         diagnosticsText = message
+    }
+
+    public func updateSettings(_ settings: LisperSettings) {
+        self.settings = settings
+    }
+
+    public func applyAudioSamples(_ samples: [Float]) {
+        audioFeedback.apply(samples: samples)
     }
 
     public func beginInProcessRecording() -> AppSessionToken {
@@ -168,6 +182,7 @@ public final class LisperAppModel: ObservableObject {
         }
 
         commitLiveTranscriptTail()
+        createTranscriptResultForFinishedRecording()
         activeSession = nil
         activeSessionToken = nil
         phase = .idle
@@ -180,6 +195,7 @@ public final class LisperAppModel: ObservableObject {
         }
 
         commitLiveTranscriptTail()
+        createTranscriptResultForFinishedRecording()
         activeSession?.stop()
         activeSession = nil
         activeSessionToken = nil
@@ -250,6 +266,7 @@ public final class LisperAppModel: ObservableObject {
         committedTranscript = ""
         liveTranscriptTail = ""
         transcriptText = ""
+        transcriptResult = nil
     }
 
     private func rebuildTranscriptText() {
@@ -315,5 +332,12 @@ public final class LisperAppModel: ObservableObject {
     private func makeSessionToken() -> AppSessionToken {
         nextSessionIdentifier &+= 1
         return AppSessionToken(rawValue: nextSessionIdentifier)
+    }
+
+    private func createTranscriptResultForFinishedRecording() {
+        transcriptResult = TranscriptResult(
+            original: transcriptText,
+            cleanup: settings.automation.postProcessingEnabled ? .processing : .disabled
+        )
     }
 }

@@ -95,7 +95,77 @@ final class AppModelTests: XCTestCase {
         _ = try await model.startRecording()
 
         XCTAssertEqual(model.transcriptText, "")
+        XCTAssertNil(model.transcriptResult)
         XCTAssertEqual(model.phase, .recording)
+    }
+
+    func testStopRecordingCreatesProcessingTranscriptResultWhenPostProcessingEnabled() async throws {
+        let dependencyResolver = FakeDependencyResolver()
+        let session = FakeWhisperSession()
+        let sessionFactory = FakeSessionFactory(session: session)
+        let model = LisperAppModel(
+            dependencyResolver: dependencyResolver,
+            sessionFactory: sessionFactory
+        )
+
+        let token = try await model.startRecording()
+        await model.handle(.transcript("hello there"), from: token)
+
+        model.stopRecording()
+
+        XCTAssertEqual(model.transcriptResult, TranscriptResult(original: "hello there", cleanup: .processing))
+    }
+
+    func testFinishRecordingCreatesDisabledTranscriptResultWhenPostProcessingDisabled() {
+        let dependencyResolver = FakeDependencyResolver()
+        let session = FakeWhisperSession()
+        let sessionFactory = FakeSessionFactory(session: session)
+        let model = LisperAppModel(
+            dependencyResolver: dependencyResolver,
+            sessionFactory: sessionFactory
+        )
+        var settings = LisperSettings.defaults
+        settings.automation.postProcessingEnabled = false
+        let token = model.beginInProcessRecording()
+        model.updateSettings(settings)
+        model.applyLiveTranscript("no cleanup", from: token)
+
+        model.finishRecording(for: token)
+
+        XCTAssertEqual(model.transcriptResult, TranscriptResult(original: "no cleanup", cleanup: .disabled))
+    }
+
+    func testFailurePreservesTranscriptResultForCopyFallback() async throws {
+        let dependencyResolver = FakeDependencyResolver()
+        let session = FakeWhisperSession()
+        let sessionFactory = FakeSessionFactory(session: session)
+        let model = LisperAppModel(
+            dependencyResolver: dependencyResolver,
+            sessionFactory: sessionFactory
+        )
+
+        let token = try await model.startRecording()
+        await model.handle(.transcript("partial result"), from: token)
+        await model.handle(.failed("engine stopped"), from: token)
+
+        XCTAssertEqual(model.phase, .failed)
+        XCTAssertEqual(model.transcriptText, "partial result")
+        XCTAssertEqual(model.transcriptResult, TranscriptResult(original: "partial result", cleanup: .processing))
+    }
+
+    func testAudioFeedbackStateIsExposedAndUpdatable() {
+        let dependencyResolver = FakeDependencyResolver()
+        let session = FakeWhisperSession()
+        let sessionFactory = FakeSessionFactory(session: session)
+        let model = LisperAppModel(
+            dependencyResolver: dependencyResolver,
+            sessionFactory: sessionFactory
+        )
+
+        model.applyAudioSamples([1.0])
+
+        XCTAssertGreaterThan(model.audioFeedback.currentEnergy, 0)
+        XCTAssertGreaterThan(model.audioFeedback.particleIntensity, 0)
     }
 
     func testStaleEventsFromPriorSessionAreIgnored() async throws {
