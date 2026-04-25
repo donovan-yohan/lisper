@@ -1,0 +1,75 @@
+Tests/LisperCoreTests/AppSettingsTests.swift
+  dc8fcb17b9c41f3b 1-16
+Tests/LisperCoreTests/ClipboardServicesTests.swift
+  dc8fcb17b9c41f3b 1-55
+Sources/LisperCore/ModelConfiguration.swift
+  dc8fcb17b9c41f3b 1-34
+Tests/LisperCoreTests/AudioFeedbackModelTests.swift
+  dc8fcb17b9c41f3b 1-33
+Tests/LisperCoreTests/TranscriptResultTests.swift
+  dc8fcb17b9c41f3b 1-28
+Sources/LisperCore/ClipboardServices.swift
+  dc8fcb17b9c41f3b 1-40
+Sources/LisperCore/ModelTesting.swift
+  dc8fcb17b9c41f3b 1-12
+Sources/LisperCore/AppModel.swift
+  a88e23dd52e36f0a 138,159,185,198,269,341
+  dc8fcb17b9c41f3b 28-30,103,131,152-158,336-339
+Sources/LisperCore/TranscriptResult.swift
+  dc8fcb17b9c41f3b 1-38
+Tests/LisperCoreTests/ModelTestingTests.swift
+  dc8fcb17b9c41f3b 1-46
+Sources/LisperCore/AppSettings.swift
+  dc8fcb17b9c41f3b 1-73
+Tests/LisperCoreTests/AppModelTests.swift
+  dc8fcb17b9c41f3b 98,102-150
+  a88e23dd52e36f0a 153-170
+Sources/LisperCore/AudioFeedbackModel.swift
+  dc8fcb17b9c41f3b 1-42
+---
+{
+  "schema_version": "authorship/3.0.0",
+  "git_ai_version": "1.3.4",
+  "base_commit_sha": "9664e3403edf2b0bb94dc852dab19465e86d8106",
+  "prompts": {
+    "a88e23dd52e36f0a": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc1d9-bada-7941-afe7-090499358276",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Donovan Yohan",
+      "messages": [],
+      "total_additions": 4781,
+      "total_deletions": 0,
+      "accepted_lines": 566,
+      "overriden_lines": 0
+    },
+    "c79ab1037e2551c2": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc1fd-4b38-7e52-9376-5f900add508a",
+        "model": "gpt-5.5"
+      },
+      "human_author": null,
+      "messages": [],
+      "total_additions": 305,
+      "total_deletions": 0,
+      "accepted_lines": 506,
+      "overriden_lines": 0
+    },
+    "dc8fcb17b9c41f3b": {
+      "agent_id": {
+        "tool": "codex",
+        "id": "019dc1f8-f627-7f80-a4b2-7b16f2ccc9c6",
+        "model": "gpt-5.5"
+      },
+      "human_author": "Donovan Yohan",
+      "messages": [],
+      "total_additions": 491,
+      "total_deletions": 0,
+      "accepted_lines": 488,
+      "overriden_lines": 0
+    }
+  }
+}
