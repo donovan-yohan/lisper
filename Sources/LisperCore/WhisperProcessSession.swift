@@ -2,9 +2,9 @@ import Foundation
 import Carbon
 
 public enum LisperDefaults {
-    public static let hotkeyDisplay = "Control + Option + Space"
-    public static let hotkeyKeyCode: UInt32 = 49
-    public static let hotkeyCarbonModifiers: UInt32 = UInt32(controlKey | optionKey)
+    public static let hotkeyDisplay = "Right Option"
+    public static let hotkeyKeyCode: UInt32 = 61
+    public static let hotkeyCarbonModifiers: UInt32 = 0
     public static let whisperStepMilliseconds = 1000
     public static let whisperLengthMilliseconds = 5000
     public static let whisperKeepMilliseconds = 200

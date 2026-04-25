@@ -1,16 +1,16 @@
 import Foundation
 
-public enum ModelSlot: String, Equatable, Sendable, CaseIterable {
+public enum ModelSlot: String, Equatable, Sendable, Codable, CaseIterable {
     case speechToText
     case cleanupText
 }
 
-public enum ModelSlotKind: Equatable, Sendable {
+public enum ModelSlotKind: String, Equatable, Sendable, Codable {
     case local
     case remote
 }
 
-public struct ModelSlotConfiguration: Equatable, Sendable {
+public struct ModelSlotConfiguration: Equatable, Sendable, Codable {
     public var slot: ModelSlot
     public var kind: ModelSlotKind
     public var endpointURL: String

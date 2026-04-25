@@ -37,17 +37,23 @@ The first focused command shows the clean rewrite path. The fallback form forces
 
 Unknown arguments are rejected with a usage message, so prefer the flag form above.
 
-## Launch The App Prototype
+## Launch The App
 
-Launch the macOS prototype with:
+Launch the macOS app with:
 
 ```bash
 swift run lisper-app
 ```
 
-The hardcoded global hotkey is `Control + Option + Space`.
+The default global hotkey is `Right Option`.
 
-The prototype currently launches `whisper-stream` with:
+- Tap `Right Option` to toggle listening.
+- Hold `Right Option` for push-to-talk.
+- Listening opens a small center-bottom ephemeral modal with reactive orb feedback.
+- When recording stops, the modal expands into stacked `Original` and `Enhanced` text blocks.
+- Click anywhere inside a text block to copy it. The bottom-right copy icon is the affordance, but the whole bubble is clickable.
+
+The app currently captures microphone audio in-process with `libwhisper`. The older process-backed `whisper-stream` path still configures:
 
 - capture device `0`
 - `--step 1000`
@@ -61,6 +67,17 @@ To verify the app executable builds without running it:
 ```bash
 swift build --product lisper-app
 ```
+
+## Settings
+
+The persistent app surface is Settings. Open it from the Lisper menu bar item (`waveform` icon) with `Options...`, or use the standard macOS `Lisper -> Settings...` menu / `Command + ,` when the app is active.
+
+- `Hotkey`: shows the current hotkey and preserves tap-to-toggle plus hold-to-talk semantics.
+- `Models`: each model slot can stay local or use a remote endpoint. Remote slots expose endpoint URL, API key, and `Test`. API keys are stored in Keychain and settings retain only the key reference.
+- `Automation`: post-processing is on by default, auto-copy is off by default, and auto-paste is off by default.
+- `Appearance`: system, light, and dark themes.
+
+When auto-copy is enabled, Lisper copies the enhanced result if cleanup succeeds. If cleanup is disabled or fails, it copies the original transcript. Auto-paste uses the same preferred result, but requires explicit opt-in.
 
 The app writes status, diagnostics, and transcript updates to:
 

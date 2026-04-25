@@ -4,74 +4,72 @@ import LisperCore
 
 public struct EphemeralModalView: View {
     @ObservedObject private var model: LisperAppModel
+    private let listeningWindowSize = CGSize(width: 260, height: 260)
+    private let resultWindowSize = CGSize(width: 660, height: 430)
+    private let resultPanelSize = CGSize(width: 600, height: 370)
 
     public init(model: LisperAppModel) {
         _model = ObservedObject(wrappedValue: model)
     }
 
     public var body: some View {
-        ZStack {
-            modalBackground
+        ZStack(alignment: .center) {
+            if isPresented {
+                if isListening {
+                    ReactiveOrbView(audioFeedback: model.audioFeedback)
+                        .frame(width: 180, height: 180)
+                        .transition(.scale.combined(with: .opacity))
+                } else {
+                    modalBackground
+                        .frame(width: resultPanelSize.width, height: resultPanelSize.height)
 
-            if isListening {
-                ReactiveOrbView(audioFeedback: model.audioFeedback)
-                    .frame(width: 180, height: 180)
-                    .transition(.scale.combined(with: .opacity))
-            } else {
-                resultStack
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
+                    resultStack
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
             }
         }
-        .padding(22)
-        .frame(minWidth: 420, idealWidth: 540, maxWidth: 680, minHeight: isListening ? 260 : 420)
-        .background(EphemeralWindowConfigurator())
+        .frame(width: isListening ? listeningWindowSize.width : resultWindowSize.width,
+               height: isListening ? listeningWindowSize.height : resultWindowSize.height)
+        .background(
+            EphemeralWindowConfigurator(
+                isPresented: isPresented,
+                targetSize: isListening ? listeningWindowSize : resultWindowSize
+            )
+        )
         .animation(.spring(response: 0.42, dampingFraction: 0.82), value: isListening)
+        .animation(.spring(response: 0.42, dampingFraction: 0.82), value: isPresented)
     }
 
     private var isListening: Bool {
         model.phase == .starting || model.phase == .recording
     }
 
+    private var isPresented: Bool {
+        isListening || model.transcriptResult != nil || !model.transcriptText.isEmpty
+    }
+
     private var modalBackground: some View {
         RoundedRectangle(cornerRadius: 28, style: .continuous)
-            .fill(.regularMaterial)
+            .fill(.ultraThinMaterial)
             .overlay {
                 RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .strokeBorder(
-                        LinearGradient(
-                            colors: [
-                                .cyan.opacity(0.42),
-                                .pink.opacity(0.34),
-                                .purple.opacity(0.32),
-                                .mint.opacity(0.38)
-                            ],
-                            startPoint: .topLeading,
-                            endPoint: .bottomTrailing
-                        ),
-                        lineWidth: 1
-                    )
+                    .fill(Color(nsColor: .windowBackgroundColor).opacity(0.10))
             }
-            .shadow(color: .purple.opacity(0.18), radius: 30, y: 18)
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .strokeBorder(.white.opacity(0.14), lineWidth: 1)
+            }
+            .shadow(color: .black.opacity(0.14), radius: 14, y: 5)
     }
 
     private var resultStack: some View {
         VStack(alignment: .leading, spacing: 18) {
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Lisper")
-                        .font(.system(size: 18, weight: .semibold, design: .rounded))
-                    Text(model.statusText)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                Spacer()
-            }
-
             TranscriptCopyBubble(
                 title: "Original",
                 text: originalText,
                 source: .original,
                 isProcessing: false,
+                copyFeedbackEvent: model.copyFeedbackEvent,
                 onCopy: copyToPasteboard
             )
 
@@ -81,9 +79,12 @@ public struct EphemeralModalView: View {
                 source: .enhanced,
                 isProcessing: enhancedIsProcessing,
                 message: enhancedMessage,
+                copyFeedbackEvent: model.copyFeedbackEvent,
                 onCopy: copyToPasteboard
             )
         }
+        .frame(width: 540)
+        .fixedSize(horizontal: false, vertical: true)
     }
 
     private func copyToPasteboard(_ text: String, _ source: TranscriptTextSource) -> Bool {
@@ -215,9 +216,11 @@ public struct TranscriptCopyBubble: View {
     let source: TranscriptTextSource
     var isProcessing: Bool = false
     var message: String?
+    var copyFeedbackEvent: CopyFeedbackEvent?
     var onCopy: (String, TranscriptTextSource) -> Bool = { _, _ in false }
 
     @State private var pointer = CGPoint(x: 0.5, y: 0.5)
+    @State private var pointerIsActive = false
     @State private var feedback = CopyFeedbackState()
     @State private var feedbackDismissTask: Task<Void, Never>?
 
@@ -265,36 +268,43 @@ public struct TranscriptCopyBubble: View {
             .transition(.opacity)
             .animation(.easeInOut(duration: 0.2), value: feedback.isVisible)
         }
+        .onChange(of: copyFeedbackEvent?.id) { _, _ in
+            guard copyFeedbackEvent?.source == source,
+                  let message = copyFeedbackEvent?.message else {
+                return
+            }
+            showCopyFeedback(message: message)
+        }
     }
 
     private var bubbleContent: some View {
         GeometryReader { geometry in
             ZStack(alignment: .bottomTrailing) {
-                RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    .fill(.thinMaterial)
+                bubbleSurface
                     .overlay {
-                        iridescentHighlight
+                        RoundedRectangle(cornerRadius: 18, style: .continuous)
+                            .fill(.ultraThinMaterial.opacity(source == .enhanced ? 0.18 : 0.34))
                     }
                     .overlay {
                         RoundedRectangle(cornerRadius: 18, style: .continuous)
-                            .strokeBorder(.white.opacity(0.28), lineWidth: 1)
+                            .strokeBorder(.white.opacity(source == .enhanced ? 0.32 : 0.22), lineWidth: 1)
                     }
 
                 Text(text)
                     .font(.system(.body, design: .rounded))
                     .foregroundStyle(.primary)
-                    .lineLimit(8)
+                    .lineLimit(5)
                     .multilineTextAlignment(.leading)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .padding(.top, 14)
-                    .padding(.leading, 14)
-                    .padding(.trailing, 44)
-                    .padding(.bottom, 34)
+                    .padding(.top, 12)
+                    .padding(.leading, 12)
+                    .padding(.trailing, 40)
+                    .padding(.bottom, 30)
 
                 Image(systemName: "doc.on.doc")
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.secondary)
-                    .padding(11)
+                    .padding(10)
             }
             .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
             .onContinuousHover { phase in
@@ -302,16 +312,36 @@ public struct TranscriptCopyBubble: View {
                 case .active(let location):
                     let width = max(1, geometry.size.width)
                     let height = max(1, geometry.size.height)
+                    pointerIsActive = true
                     pointer = CGPoint(
                         x: min(1, max(0, location.x / width)),
                         y: min(1, max(0, location.y / height))
                     )
                 case .ended:
+                    pointerIsActive = false
                     pointer = CGPoint(x: 0.5, y: 0.5)
                 }
             }
         }
-        .frame(minHeight: 116)
+        .frame(height: 112)
+    }
+
+    @ViewBuilder
+    private var bubbleSurface: some View {
+        if source == .enhanced {
+            LavaLampSurface(
+                pointer: pointer,
+                intensity: 0.72,
+                pointerInfluence: pointerIsActive ? 1 : 0
+            )
+        } else {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(.regularMaterial)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .fill(Color(nsColor: .windowBackgroundColor).opacity(0.12))
+                }
+        }
     }
 
     private func showCopyFeedback(message: String) {
@@ -329,34 +359,6 @@ public struct TranscriptCopyBubble: View {
         }
     }
 
-    private var iridescentHighlight: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    .cyan.opacity(0.12),
-                    .pink.opacity(0.10),
-                    .purple.opacity(0.08),
-                    .mint.opacity(0.12)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-
-            RadialGradient(
-                colors: [
-                    .white.opacity(0.34),
-                    .cyan.opacity(0.22),
-                    .pink.opacity(0.14),
-                    .clear
-                ],
-                center: UnitPoint(x: pointer.x, y: pointer.y),
-                startRadius: 0,
-                endRadius: 170
-            )
-            .blendMode(.screen)
-        }
-        .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-    }
 }
 
 public struct CopyFeedbackState: Equatable {
@@ -407,6 +409,9 @@ private struct CopyFeedbackShimmer: View {
 }
 
 private struct EphemeralWindowConfigurator: NSViewRepresentable {
+    var isPresented: Bool
+    var targetSize: CGSize
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView()
         DispatchQueue.main.async {
@@ -428,14 +433,26 @@ private struct EphemeralWindowConfigurator: NSViewRepresentable {
 
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.styleMask.remove([.titled, .closable, .miniaturizable, .resizable])
         window.isOpaque = false
         window.backgroundColor = .clear
         window.level = .floating
+        window.isMovableByWindowBackground = true
         window.collectionBehavior.insert(.canJoinAllSpaces)
         window.collectionBehavior.insert(.fullScreenAuxiliary)
         window.standardWindowButton(.closeButton)?.isHidden = true
         window.standardWindowButton(.miniaturizeButton)?.isHidden = true
         window.standardWindowButton(.zoomButton)?.isHidden = true
+
+        if window.contentView?.frame.size != targetSize {
+            window.setContentSize(targetSize)
+        }
+
+        if isPresented {
+            window.orderFrontRegardless()
+        } else {
+            window.orderOut(nil)
+        }
 
         if let screen = window.screen ?? NSScreen.main {
             let frame = window.frame
